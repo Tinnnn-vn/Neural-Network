@@ -1,2 +1,2 @@
 # Neural-Network
-Neural Network tự xây dựng bằng PyTorch
+Xây dựng mạng nơ ron từ đầu bằng PyTorch
