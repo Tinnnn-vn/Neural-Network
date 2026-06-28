@@ -210,88 +210,9 @@ Lý do là mô hình của ta đang học sinh ảnh theo kiểu unconditional g
 
 Trong bài toán phân loại ảnh, label rất quan trọng. Nhưng trong Diffusion Model cơ bản, nhiệm vụ của mô hình không phải là phân loại ảnh mà là dự đoán nhiễu.
 
-### 2.4 Time Embedding — Cho mô hình biết timestep
-Ở chương 2.3, ta đã chuẩn bị được ảnh gốc MNIST (x_0). Trong Diffusion Model, ta sẽ chọn một timestep (t), rồi thêm nhiễu vào ảnh gốc để tạo ra ảnh nhiễu (x_t). 
-Công thức forward diffusion là:
-$$x_t = \sqrt{\bar{\alpha}_t}x_0 + \sqrt{1 - \bar{\alpha}_t}\epsilon$$
+Với bản thiết kế và dữ liệu đã được xác định, giờ đây chúng ta đã sẵn sàng xây dựng thành phần chính đầu tiên của mô hình: quá trình toán học để thêm nhiễu & loại bỏ nhiễu khỏi ảnh.
 
-Nhưng khi đưa ảnh nhiễu (x_t) vào mô hình, ta không thể chỉ đưa ảnh vào. Mô hình còn phải biết ảnh đó đang ở timestep nào.
-| Bước thời gian (Timestep) | Mức độ nhiễu | Mô hình cần làm gì? |
-| :--- | :--- | :--- |
-| `(t = 10)` | Ít nhiễu | Khử nhiễu nhẹ |
-| `(t = 15)` | Nhiễu trung bình | Khử nhiễu vừa phải |
-| `(t = 299)` | Rất nhiều nhiễu | Khử nhiễu mạnh hơn |
-
-Vì vậy, để thực hiện được nhiệm vụ này, mô hình cần phải nhận cả hai thông tin đầu vào cùng lúc:
-
-```text
-  x_t, t
-```
-Trong đó:
-- (x_t): ảnh đang bị nhiễu.
-- (t): timestep hiện tại.
-
-Mô hình sẽ học hàm:
-$$\epsilon_\theta(x_t, t)$$
-
-Nghĩa là mô hình nhìn ảnh bị nhiễu (x_t), đồng thời biết timestep (t), rồi dự đoán nhiễu trong ảnh.
-
-Time Embedding giống như một chiếc đồng hồ báo cho mô hình biết:
-
-"Nhiễu đã lan trong hình ảnh được bao lâu rồi?"
-
-Nếu không có chiếc đồng hồ này, mô hình chỉ nhìn thấy hình ảnh bị nhiễu, nhưng không biết nó đang ở giai đoạn đầu, giữa hay cuối của quá trình diffusion.
-
-Vấn đề: Chúng ta không thể chỉ đưa trực tiếp số nguyên t (vd: 5, 250, 900) vào mạng nơ-ron. Đây chỉ là các giá trị vô hướng và không cung cấp đủ tín hiệu phong phú để mô hình diễn giải những khác biệt và mối quan hệ tinh tế giữa các bước thời gian.
-
-Giải pháp: Chúng tôi sử dụng Sinusoidal Position Embeddings, một kỹ thuật được giới thiệu trong bài báo gốc "Attention Is All You Need" về Transformer. Kỹ thuật này ánh xạ một số nguyên t duy nhất thành một vectơ đa chiều.
-
-Một timestep không còn là một số đơn lẻ nữa, mà trở thành một vector có nhiều tín hiệu thời gian khác nhau. Một số chiều trong vector thay đổi chậm. Một số chiều thay đổi nhanh. Nhờ đó, neural network có thể hiểu timestep ở nhiều mức độ khác nhau.
-
-Ban đầu, timestep chỉ là một số: t = 150
-
-Sau time embedding, nó trở thành một vector:
-
-    emb(t) = [0.71, -0.22, 0.91, ..., 0.33]
-
-Ta không cần tự diễn giải từng số trong vector này. Điều quan trọng là neural network có thể dùng vector này để biết ảnh đang bị nhiễu ở mức nào.
-
-```python
-class SinusoidalPositionEmbeddings(nn.Module):
-    def __init__(self, dim):
-        super().__init__()
-        self.dim = dim
-
-    def forward(self, time):
-        device = time.device
-
-        half_dim = self.dim // 2
-
-        embeddings = math.log(10000) / (half_dim - 1)
-
-        embeddings = torch.exp(
-            torch.arange(half_dim, device=device) * -embeddings
-        )
-
-        embeddings = time[:, None] * embeddings[None, :]
-
-        embeddings = torch.cat(
-            (embeddings.sin(), embeddings.cos()),
-            dim=-1
-        )
-
-        return embeddings
-```
-| Thành phần | Vai trò chính | Trực giác dễ hiểu |
-| :--- | :--- | :--- |
-| `SinusoidalPositionEmbeddings` | Module biến timestep thành vector | Biến "số thời gian" thành tín hiệu dễ hiểu cho model |
-| `dim` | Kích thước vector embedding | Timestep sẽ được mở rộng thành vector dài `dim` |
-| `forward(self, time)` | Nhận timestep và trả về embedding | Khi đưa `t` vào, module trả về vector thời gian |
-| `sin()` | Mã hóa timestep bằng sóng sin | Một kiểu tín hiệu thời gian |
-| `cos()` | Mã hóa timestep bằng sóng cos | Một kiểu tín hiệu thời gian khác |
-| `torch.cat(...)` | Ghép sin và cos lại | Tạo vector embedding hoàn chỉnh |
-
-### 2.5 Khuếch Tán Thuận (forward diffusion): Giải thích toán học
+### 2.4 Khuếch Tán Thuận (forward diffusion): Giải thích toán học
 Khuếch tán thuận là quá trình phá hủy một hình ảnh bằng cách thêm nhiễu, từng bước một. Dưới đây là công thức cho một bước đơn lẻ:
 
 $$x_t = \sqrt{\alpha_t}x_{t-1} + \sqrt{\beta_t}\epsilon$$
@@ -384,9 +305,9 @@ Nhìn vào công thức này, chúng ta cần ba thành phần:
 Vì $\bar{\alpha}_t$ chỉ phụ thuộc vào bước thời gian (không phụ thuộc vào bức ảnh), chúng ta có thể tính toán trước nó một lần và tái sử dụng nhiều lần. Mã triển khai của chúng ta sẽ gồm hai phần:
 
 1. Tính toán trước các lịch trình nhiễu ($\beta_t, \alpha_t, \bar{\alpha}_t$).
-2. Hàm "lối đi tắt" (shortcut) để tạo ra một bức ảnh bị nhiễu $x_t$ từ bất kỳ ảnh gốc $x_0$ và bước thời gian $t$ nào được cho sẵn.
+2. Hàm "noise_image" để tạo ra một bức ảnh bị nhiễu $x_t$ từ bất kỳ ảnh gốc $x_0$ và bước thời gian $t$ nào được cho sẵn.
 
-### Phần 1: Tính toán trước các Lịch trình trong `Diffusion.__init__`
+### Phần 1: Tính toán trước các lịch trình nhiễu trong `Diffusion.__init__`
 
 Hãy nhớ lại rằng $\bar{\alpha}_t = \alpha_1 \times \alpha_2 \times \dots \times \alpha_t$, trong đó $\alpha_t = 1 - \beta_t$. Công việc chúng ta cần làm là:
 
@@ -407,4 +328,135 @@ class Diffusion(nn.Module):
         self.beta = torch.linspace(config.beta_start, config.beta_end, config.timesteps).to(config.device)
         self.alpha = 1. - self.beta
         self.alpha_hat = torch.cumprod(self.alpha, dim=0)
+
+        self.register_buffer("beta", beta)
+        self.register_buffer("alpha", alpha)
+        self.register_buffer("alpha_hat", alpha_hat)
 ```
+Vì sao dùng register_buffer?
+
+beta, alpha, alpha_hat là các tensor quan trọng của Diffusion, nhưng chúng không phải tham số cần học. Model cần lưu chúng lại và đưa chúng lên GPU cùng model, nhưng optimizer không được cập nhật chúng.
+
+Nói đơn giản:
+
+register_buffer dùng để lưu các tensor cố định đi theo model.
+
+### Phần 2: Triển khai hàm noise_image để thêm nhiễu
+Hàm này hiện thực công thức: $$x_t = \sqrt{\bar{\alpha}_t}x_0 + \sqrt{1 - \bar{\alpha}_t}\epsilon$$
+
+Hàm này nhận một loạt ảnh sạch x và một loạt các bước thời gian tương ứng t, và trả về các ảnh bị nhiễu $$x_t$$
+
+Hãy cùng xem đoạn mã sau.
+```python
+    def noise_images(self, x, t):
+        # Thêm nhiễu vào hình ảnh ở bước thời gian t
+        sqrt_alpha_hat = torch.sqrt(self.alpha_hat[t])[:, None, None, None]
+        sqrt_one_minus_alpha_hat = torch.sqrt(1 - self.alpha_hat[t])[:, None, None, None]
+        ε = torch.randn_like(x)
+        return sqrt_alpha_hat * x + sqrt_one_minus_alpha_hat * ε, ε
+```
+| Ký hiệu | Trong code | Ý nghĩa |
+| :--- | :--- | :--- |
+| $x_0$ | `x` | Ảnh gốc sạch |
+| $t$ | `t` | Timestep |
+| $\epsilon$ | `noise` | Nhiễu Gaussian |
+| $\sqrt{\bar{\alpha}_t}$ | `sqrt_alpha_hat` | Lượng ảnh gốc còn giữ lại |
+| $\sqrt{1 - \bar{\alpha}_t}$ | `sqrt_one_minus_alpha_hat` | Lượng nhiễu được thêm vào |
+| $x_t$ | `x_t` | Ảnh sau khi bị thêm nhiễu |
+
+| Dòng code | Nó làm gì? | Trực giác dễ hiểu | Shape ví dụ |
+| :--- | :--- | :--- | :--- |
+| `self.alpha_hat[t]` | Lấy $\bar{\alpha}_t$ theo timestep | Mỗi ảnh lấy mức nhiễu riêng | `[64]` |
+| `torch.sqrt(...)` | Lấy căn bậc hai | Đúng theo công thức diffusion | `[64]` |
+| `[:, None, None, None]` | Reshape để nhân với ảnh | Biến hệ số thành dạng broadcast được | `[64, 1, 1, 1]` |
+| `torch.randn_like(x)` | Tạo noise cùng shape ảnh | Tạo nhiễu Gaussian | `[64, 1, 32, 32]` |
+| `sqrt_alpha_hat * x` | Giữ lại một phần ảnh gốc | Phần hình ảnh còn rõ | `[64, 1, 32, 32]` |
+| `sqrt_one_minus_alpha_hat * noise` | Thêm nhiễu vào ảnh | Phần màu xanh lan vào ly nước | `[64, 1, 32, 32]` |
+| `return x_t, noise` | Trả về ảnh nhiễu và noise thật | Noise thật dùng làm đáp án training | — |
+
+Nói đơn giản: noise_images() là hàm chủ động phá hỏng ảnh gốc bằng cách thêm nhiễu
+Chúng ta đã hoàn tất quá trình khuếch tán thuận. Giờ đã có một phương pháp xác định và hiệu quả để lấy bất kỳ hình ảnh nào và tạo ra phiên bản nhiễu cho bất kỳ bước thời gian t nào. Với các mẫu huấn luyện này, chúng ta đã sẵn sàng định nghĩa quá trình khử nhiễu ngược và dạy mạng U-Net cách dự đoán nhiễu.
+
+### 2.5 Quá trình khử nhiễu ngược và huấn luyện (Reverse Process & Training)
+Chúng ta đã biết học cách phá hủy hình ảnh bằng cách thêm nhiễu trước đó. Giờ đây chúng ta sẽ học cách sáng tạo lại ảnh đó.
+
+Quá trình đảo ngược là bắt đầu với nhiễu thuần túy ($$x_T$$) và khử nhiễu dần dần, từng bước một, cho đến khi ta có được một hình ảnh sạch ($$x_0$$).
+
+
+
+
+
+### 2.4 Time Embedding — Cho mô hình biết timestep
+Ở chương 2.3, ta đã chuẩn bị được ảnh gốc MNIST (x_0). Trong Diffusion Model, ta sẽ chọn một timestep (t), rồi thêm nhiễu vào ảnh gốc để tạo ra ảnh nhiễu (x_t). 
+Công thức forward diffusion là:
+$$x_t = \sqrt{\bar{\alpha}_t}x_0 + \sqrt{1 - \bar{\alpha}_t}\epsilon$$
+
+Nhưng khi đưa ảnh nhiễu (x_t) vào mô hình, ta không thể chỉ đưa ảnh vào. Mô hình còn phải biết ảnh đó đang ở timestep nào.
+| Bước thời gian (Timestep) | Mức độ nhiễu | Mô hình cần làm gì? |
+| :--- | :--- | :--- |
+| `(t = 10)` | Ít nhiễu | Khử nhiễu nhẹ |
+| `(t = 30)` | Nhiễu trung bình | Khử nhiễu vừa phải |
+| `(t = 299)` | Rất nhiều nhiễu | Khử nhiễu mạnh hơn |
+
+Vì vậy, để thực hiện được nhiệm vụ này, mô hình cần phải nhận cả hai thông tin đầu vào cùng lúc:
+
+```text
+  x_t, t
+```
+Trong đó:
+- (x_t): ảnh đang bị nhiễu.
+- (t): timestep hiện tại.
+
+Mô hình sẽ học hàm:
+$$\epsilon_\theta(x_t, t)$$
+
+Nghĩa là mô hình nhìn ảnh bị nhiễu (x_t), đồng thời biết timestep (t), rồi dự đoán nhiễu trong ảnh.
+
+Time Embedding giống như một chiếc đồng hồ báo cho mô hình biết:
+
+"Nhiễu đã lan trong hình ảnh được bao lâu rồi?"
+
+Nếu không có chiếc đồng hồ này, mô hình chỉ nhìn thấy hình ảnh bị nhiễu, nhưng không biết nó đang ở giai đoạn đầu, giữa hay cuối của quá trình diffusion.
+
+Vấn đề: Chúng ta không thể chỉ đưa trực tiếp số nguyên t (vd: 5, 250, 900) vào mạng nơ-ron. Đây chỉ là các giá trị vô hướng và không cung cấp đủ tín hiệu phong phú để mô hình diễn giải những khác biệt và mối quan hệ tinh tế giữa các bước thời gian.
+
+Giải pháp: Chúng tôi sử dụng Sinusoidal Position Embeddings, một kỹ thuật được giới thiệu trong bài báo gốc "Attention Is All You Need" về Transformer. Kỹ thuật này ánh xạ một số nguyên t duy nhất thành một vectơ đa chiều.
+
+Một timestep không còn là một số đơn lẻ nữa, mà trở thành một vector có nhiều tín hiệu thời gian khác nhau. Một số chiều trong vector thay đổi chậm. Một số chiều thay đổi nhanh. Nhờ đó, neural network có thể hiểu timestep ở nhiều mức độ khác nhau.
+
+Ban đầu, timestep chỉ là một số: t = 150
+
+Sau time embedding, nó trở thành một vector:
+
+    emb(t) = [0.71, -0.22, 0.91, ..., 0.33]
+
+Ta không cần tự diễn giải từng số trong vector này. Điều quan trọng là neural network có thể dùng vector này để biết ảnh đang bị nhiễu ở mức nào.
+
+```python
+class SinusoidalPositionEmbeddings(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.dim = dim
+
+    def forward(self, time):
+        device = time.device
+        half_dim = self.dim // 2
+        embeddings = math.log(10000) / (half_dim - 1)
+        embeddings = torch.exp(
+            torch.arange(half_dim, device=device) * -embeddings
+        )
+        embeddings = time[:, None] * embeddings[None, :]
+        embeddings = torch.cat(
+            (embeddings.sin(), embeddings.cos()),
+            dim=-1
+        )
+        return embeddings
+```
+| Thành phần | Vai trò chính | Trực giác dễ hiểu |
+| :--- | :--- | :--- |
+| `SinusoidalPositionEmbeddings` | Module biến timestep thành vector | Biến "số thời gian" thành tín hiệu dễ hiểu cho model |
+| `dim` | Kích thước vector embedding | Timestep sẽ được mở rộng thành vector dài `dim` |
+| `forward(self, time)` | Nhận timestep và trả về embedding | Khi đưa `t` vào, module trả về vector thời gian |
+| `sin()` | Mã hóa timestep bằng sóng sin | Một kiểu tín hiệu thời gian |
+| `cos()` | Mã hóa timestep bằng sóng cos | Một kiểu tín hiệu thời gian khác |
+| `torch.cat(...)` | Ghép sin và cos lại | Tạo vector embedding hoàn chỉnh |
