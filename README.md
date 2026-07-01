@@ -1,5 +1,5 @@
 # Neural-Network
 
-Xây dựng mạng nơ ron từ đầu bằng PyTorch
+Mình sử dụng AI để biên soạn và xây dựng mạng nơ ron từ đầu bằng PyTorch
 
 Trạng thái: Đang tiến hành
