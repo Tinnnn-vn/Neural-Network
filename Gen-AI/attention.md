@@ -274,11 +274,106 @@ Mỗi hàng cộng lại xấp xỉ bằng 1:
 
 **B5. Nhân Attention Weights với V**
 
+Bây giờ ta tính: `A.V`
 
+```
+A =
+[
+  [0.401, 0.198, 0.401],
+  [0.198, 0.401, 0.401],
+  [0.248, 0.248, 0.504]
+]
 
+x
 
+V =
+[
+  [10, 0],
+  [0, 10],
+  [10, 10]
+]
+```
 
+Kết quả: `Output shape = 3 × 2`
 
+Tức là sau Attention, ta vẫn có 3 token, mỗi token vẫn là vector 2 chiều.
+
+**Output của token “Tôi”**
+
+Hàng 1 của A: `[0.401, 0.198, 0.401]`
+
+Nó nói rằng “Tôi” lấy thông tin:
+```
+40.1% từ V_Tôi
+19.8% từ V_học
+40.1% từ V_AI
+```
+
+Tính từng phần:
+```
+0.401 × [10, 0]  = [4.01, 0]
+0.198 × [0, 10]  = [0, 1.98]
+0.401 × [10, 10] = [4.01, 4.01]
+```
+
+Cộng lại:
+```
+Output_Tôi = [4.01 + 0 + 4.01, 0 + 1.98 + 4.01] = [8.02, 5.99]
+```
+
+**Output của token “học”**
+```
+Output_học = [1.98 + 0 + 4.01, 0 + 4.01 + 4.01] = [5.99, 8.02]
+```
+
+**Output của token “AI”**
+```
+Output_AI = [2.48 + 0 + 5.04, 0 + 2.48 + 5.04] = [7.52, 7.52]
+```
+
+**Kết quả cuối cùng ta có ma trận Attention sau:**
+```
+Attention(Q, K, V) =
+[
+  [8.02, 5.99],
+  [5.99, 8.02],
+  [7.52, 7.52]
+]
+```
+Đây là vector mới của từng token sau Attention.
+```
+"Tôi" → [8.02, 5.99]
+"học" → [5.99, 8.02]
+"AI"  → [7.52, 7.52]
+```
+
+**So sánh trước và sau Attention**
+
+Ban đầu Value là: 
+```
+V =
+[
+  [10, 0],    ← Tôi
+  [0, 10],    ← học
+  [10, 10]    ← AI
+]
+```
+
+Sau Attention:
+```
+Output =
+[
+  [8.02, 5.99],
+  [5.99, 8.02],
+  [7.52, 7.52]
+]
+```
+
+Ta thấy mỗi token không còn giữ nguyên thông tin ban đầu nữa.
+
+Nghĩa là nó đã trộn thêm thông tin từ “Tôi” và “AI”.
+
+Đặc biệt, vì “học” chú ý khá mạnh đến “AI”, vector mới của “học” đã chứa nhiều thông tin từ “AI”.
 
 
 
